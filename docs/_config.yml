@@ -1,0 +1,58 @@
+# =============================================================================
+# JEKYLL CONFIGURATION FOR GITHUB PAGES
+# =============================================================================
+
+# Site settings
+title: "VeriTalk - Privacy Policy"
+description: "AI-Powered Bible Study Assistant - Privacy Policy and Legal Information"
+author: "Harrison Kuria"
+email: "harrisonkuria254@gmail.com"
+phone: "+254712311209"
+
+# URL settings
+url: "https://harrisonkuria.github.io/veritalk"
+baseurl: ""
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+permalink: pretty
+
+# Collections
+collections:
+  docs:
+    output: true
+    permalink: /:collection/:name
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+      type: "docs"
+    values:
+      layout: "default"
+
+# Plugins
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
+
+# Include files
+include:
+  - _pages
+
+# =============================================================================
+# SEO SETTINGS
+# =============================================================================
+lang: en_US
+locale: en_US 

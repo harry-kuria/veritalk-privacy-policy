@@ -1,0 +1,119 @@
+name: 🚀 Deploy to GitHub Pages
+
+# =============================================================================
+# WORKFLOW PERMISSIONS
+# =============================================================================
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# =============================================================================
+# WORKFLOW TRIGGER
+# =============================================================================
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-github-pages.yml'
+  workflow_dispatch:
+
+# =============================================================================
+# ENVIRONMENT SETUP
+# =============================================================================
+env:
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+
+# =============================================================================
+# JOBS
+# =============================================================================
+jobs:
+  # =============================================================================
+  # BUILD JOB - PREPARE FILES FOR DEPLOYMENT
+  # =============================================================================
+  build:
+    name: 🏗️ Build GitHub Pages
+    runs-on: ubuntu-latest
+    
+    steps:
+      # =============================================================================
+      # STEP 1: CHECKOUT CODE
+      # =============================================================================
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      # =============================================================================
+      # STEP 2: SETUP PAGES
+      # =============================================================================
+      - name: 📄 Setup Pages
+        uses: actions/configure-pages@v4
+      
+      # =============================================================================
+      # STEP 3: BUILD WITH Jekyll
+      # =============================================================================
+      - name: 🔨 Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+      
+      # =============================================================================
+      # STEP 4: UPLOAD ARTIFACT
+      # =============================================================================
+      - name: 📤 Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './_site'
+
+  # =============================================================================
+  # DEPLOY JOB - DEPLOY TO GITHUB PAGES
+  # =============================================================================
+  deploy:
+    name: 🚀 Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      # =============================================================================
+      # STEP 1: DEPLOY TO GITHUB PAGES
+      # =============================================================================
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+# =============================================================================
+# SETUP INSTRUCTIONS
+# =============================================================================
+# To enable GitHub Pages for your private repository:
+
+# 1. GO TO REPOSITORY SETTINGS:
+#    - Navigate to your repository on GitHub
+#    - Click on "Settings" tab
+#    - Scroll down to "Pages" section
+
+# 2. CONFIGURE GITHUB PAGES:
+#    - Under "Source", select "GitHub Actions"
+#    - This will allow the workflow to deploy to Pages
+
+# 3. ENABLE WORKFLOW PERMISSIONS:
+#    - Go to Settings > Actions > General
+#    - Under "Workflow permissions", select "Read and write permissions"
+#    - Check "Allow GitHub Actions to create and approve pull requests"
+
+# 4. YOUR PRIVACY POLICY WILL BE AVAILABLE AT:
+#    https://[your-username].github.io/[repository-name]/
+#    Example: https://harrisonkuria.github.io/veritalk/
+
+# 5. FOR PRIVATE REPOSITORIES:
+#    - The site will be public even if the repository is private
+#    - This is perfect for privacy policies and legal documents
+#    - Users can access the privacy policy without needing repository access
+
+# 6. CUSTOM DOMAIN (OPTIONAL):
+#    - You can add a custom domain in the Pages settings
+#    - Example: privacy.veritalk.app
+# ============================================================================= 

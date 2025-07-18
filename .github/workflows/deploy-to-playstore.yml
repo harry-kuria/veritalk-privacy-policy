@@ -1,0 +1,347 @@
+name: 🚀 Deploy to Google Play Store
+
+# =============================================================================
+# WORKFLOW PERMISSIONS
+# =============================================================================
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
+# =============================================================================
+# WORKFLOW TRIGGER - MANUAL DEPLOYMENT
+# =============================================================================
+# This workflow can be triggered manually from the GitHub Actions tab
+# Go to: Actions > Deploy to Google Play Store > Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'App version name (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+      version_code:
+        description: 'App version code (e.g., 1)'
+        required: true
+        default: '1'
+      release_notes:
+        description: 'Release notes for this version'
+        required: false
+        default: 'Bug fixes and improvements'
+      track:
+        description: 'Release track (internal, alpha, beta, production)'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+# These secrets need to be added to your GitHub repository:
+# Go to: Settings > Secrets and variables > Actions
+# Add the following secrets:
+# - GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: Your service account JSON file content
+# - KEYSTORE_PASSWORD: Your keystore password
+# - KEY_ALIAS: Your key alias
+# - KEY_PASSWORD: Your key password
+env:
+  FLUTTER_VERSION: '3.32.6'
+  JAVA_VERSION: '17'
+
+# =============================================================================
+# JOBS - THE STEPS TO BUILD AND DEPLOY
+# =============================================================================
+jobs:
+  # =============================================================================
+  # BUILD JOB - COMPILE THE APP
+  # =============================================================================
+  build:
+    name: 🏗️ Build Android App Bundle
+    runs-on: ubuntu-latest
+    
+    steps:
+      # =============================================================================
+      # STEP 1: CHECKOUT CODE
+      # =============================================================================
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Get full history for versioning
+      
+      # =============================================================================
+      # STEP 2: SETUP JAVA
+      # =============================================================================
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+      
+      # =============================================================================
+      # STEP 3: SETUP FLUTTER
+      # =============================================================================
+      - name: 🦋 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      
+      # =============================================================================
+      # STEP 4: GET DEPENDENCIES
+      # =============================================================================
+      - name: 📦 Get dependencies
+        run: flutter pub get
+      
+      # =============================================================================
+      # STEP 5: ANALYZE CODE
+      # =============================================================================
+      - name: 🔍 Analyze code
+        run: flutter analyze
+      
+      # =============================================================================
+      # STEP 6: RUN TESTS
+      # =============================================================================
+      - name: 🧪 Run tests
+        run: flutter test
+      
+      # =============================================================================
+      # STEP 7: UPDATE VERSION
+      # =============================================================================
+      - name: 📝 Update app version
+        run: |
+          # Update pubspec.yaml with new version
+          sed -i "s/version: .*/version: ${{ github.event.inputs.version_name }}+${{ github.event.inputs.version_code }}/" pubspec.yaml
+          
+          # Update Android version code in build.gradle.kts (Kotlin DSL syntax)
+          sed -i "s/versionCode = .*/versionCode = ${{ github.event.inputs.version_code }}/" android/app/build.gradle.kts
+          sed -i "s/versionName = .*/versionName = \"${{ github.event.inputs.version_name }}\"/" android/app/build.gradle.kts
+      
+      # =============================================================================
+      # STEP 8: SETUP SIGNING
+      # =============================================================================
+      - name: 🔐 Setup signing
+        run: |
+          # Create keystore directory
+          mkdir -p android/app/keystore
+          
+          # Create keystore from base64 secret
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore/release.keystore
+            echo "✅ Keystore created from secret"
+            
+            # Verify keystore file exists and has content
+            if [ -f "android/app/keystore/release.keystore" ]; then
+              echo "✅ Keystore file created successfully"
+              ls -la android/app/keystore/
+            else
+              echo "❌ Failed to create keystore file"
+              exit 1
+            fi
+          else
+            echo "❌ KEYSTORE_BASE64 secret not found! Please add your keystore as a base64 secret"
+            exit 1
+          fi
+          
+          # Verify required secrets are available
+          if [ -z "${{ secrets.KEYSTORE_PASSWORD }}" ]; then
+            echo "❌ KEYSTORE_PASSWORD secret not found!"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.KEY_ALIAS }}" ]; then
+            echo "❌ KEY_ALIAS secret not found!"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.KEY_PASSWORD }}" ]; then
+            echo "❌ KEY_PASSWORD secret not found!"
+            exit 1
+          fi
+          
+          echo "✅ All signing secrets are available"
+      
+      # =============================================================================
+      # STEP 9: BUILD APP BUNDLE
+      # =============================================================================
+      - name: 📱 Build Android App Bundle
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          flutter build appbundle \
+            --release \
+            --dart-define=FLUTTER_BUILD_NAME=${{ github.event.inputs.version_name }} \
+            --dart-define=FLUTTER_BUILD_NUMBER=${{ github.event.inputs.version_code }}
+      
+      # =============================================================================
+      # STEP 10: UPLOAD ARTIFACT
+      # =============================================================================
+      - name: 📤 Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-bundle
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+      
+      # =============================================================================
+      # STEP 11: CREATE RELEASE
+      # =============================================================================
+      - name: 🏷️ Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.event.inputs.version_name }}
+          name: VeriTalk v${{ github.event.inputs.version_name }}
+          body: |
+            ## 🚀 VeriTalk v${{ github.event.inputs.version_name }}
+            
+            ### 📝 Release Notes
+            ${{ github.event.inputs.release_notes }}
+            
+            ### 📱 What's New
+            - Bug fixes and improvements
+            - Enhanced user experience
+            - Performance optimizations
+            
+            ### 🔧 Technical Details
+            - Version Code: ${{ github.event.inputs.version_code }}
+            - Build Date: $(date)
+            - Commit: ${{ github.sha }}
+            
+            ### 📥 Download
+            App Bundle is attached to this release.
+          files: build/app/outputs/bundle/release/app-release.aab
+          draft: false
+          prerelease: ${{ github.event.inputs.track != 'production' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =============================================================================
+  # DEPLOY JOB - UPLOAD TO PLAY STORE
+  # =============================================================================
+  deploy:
+    name: 🚀 Deploy to Play Store
+    runs-on: ubuntu-latest
+    needs: build  # Wait for build to complete first
+    
+    steps:
+      # =============================================================================
+      # STEP 1: CHECKOUT CODE
+      # =============================================================================
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      # =============================================================================
+      # STEP 2: DOWNLOAD ARTIFACT
+      # =============================================================================
+      - name: 📥 Download App Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: app-bundle
+          path: build/app/outputs/bundle/release/
+      
+      # =============================================================================
+      # STEP 3: CHECK IF GOOGLE PLAY SETUP IS AVAILABLE
+      # =============================================================================
+      - name: 🔍 Check Google Play Setup
+        id: check_play_store
+        run: |
+          # Check if the secret exists and is not empty
+          if [ -n "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "setup_available=true" >> $GITHUB_OUTPUT
+            echo "✅ Google Play service account is configured"
+          else
+            echo "setup_available=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Google Play service account not configured - skipping Play Store deployment"
+          fi
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      
+      # =============================================================================
+      # STEP 4: SETUP GOOGLE PLAY SERVICE ACCOUNT (if available)
+      # =============================================================================
+      - name: 🔐 Setup Google Play Service Account
+        if: steps.check_play_store.outputs.setup_available == 'true'
+        run: |
+          # Create service account JSON file
+          echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > service-account.json
+          
+          # Verify the JSON is valid
+          cat service-account.json | jq .
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      
+      # =============================================================================
+      # STEP 5: DEPLOY TO PLAY STORE (if available)
+      # =============================================================================
+      - name: 🚀 Deploy to Google Play Store
+        if: steps.check_play_store.outputs.setup_available == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.veritalk.app  # Update this to your actual package name
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: ${{ github.event.inputs.track }}
+          status: "draft"
+          releaseName: "VeriTalk v${{ github.event.inputs.version_name }}"
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      
+      # =============================================================================
+      # STEP 6: NOTIFY SUCCESS
+      # =============================================================================
+      - name: ✅ Deployment Complete
+        run: |
+          if [ "${{ steps.check_play_store.outputs.setup_available }}" == "true" ]; then
+            echo "🎉 Successfully deployed VeriTalk v${{ github.event.inputs.version_name }} to ${{ github.event.inputs.track }} track!"
+            echo "📱 Package: com.veritalk.app"
+            echo "🏷️ Version: ${{ github.event.inputs.version_name }}"
+            echo "🔢 Build: ${{ github.event.inputs.version_code }}"
+            echo "📝 Notes: ${{ github.event.inputs.release_notes }}"
+          else
+            echo "✅ Build completed successfully!"
+            echo "📱 App bundle created and uploaded as artifact"
+            echo "🏷️ Version: ${{ github.event.inputs.version_name }}"
+            echo "🔢 Build: ${{ github.event.inputs.version_code }}"
+            echo "⚠️ Google Play deployment skipped (service account not configured)"
+            echo "💡 To enable Play Store deployment, add GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret"
+          fi
+
+# =============================================================================
+# SETUP INSTRUCTIONS
+# =============================================================================
+# To use this workflow, you need to:
+
+# 1. GOOGLE PLAY CONSOLE SETUP:
+#    - Create a Google Play Console account
+#    - Create a new app
+#    - Get your package name (e.g., com.yourcompany.veritalk)
+#    - Create a service account and download the JSON key
+
+# 2. GITHUB SECRETS SETUP:
+#    Go to: Settings > Secrets and variables > Actions
+#    Add these secrets:
+#    - GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: Your service account JSON content
+#    - KEYSTORE_PASSWORD: Your keystore password
+#    - KEY_ALIAS: Your key alias  
+#    - KEY_PASSWORD: Your key password
+
+# 3. KEYSTORE SETUP:
+#    - Generate a keystore for signing your app
+#    - Place it at: android/app/keystore/release.keystore
+#    - Update android/app/build.gradle.kts with signing config
+
+# 4. PACKAGE NAME:
+#    Update the packageName in the deploy step to match your actual package name
+
+# 5. TRIGGER DEPLOYMENT:
+#    Go to: Actions > Deploy to Google Play Store > Run workflow
+#    Fill in the version details and click "Run workflow"
+# ============================================================================= 
